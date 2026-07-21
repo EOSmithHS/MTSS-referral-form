@@ -344,6 +344,18 @@
     cursor: not-allowed;
   }
 
+  .result-banner-success{
+    background: #EAF3EC;
+    border: 1px solid #4F7A5B;
+    color: #2A4A34;
+  }
+
+  .result-banner-error{
+    background: #FBEAEA;
+    border: 1px solid var(--red);
+    color: var(--red-dark);
+  }
+
   .submit-note{
     font-size: 12.5px;
     color: var(--ink-soft);
@@ -527,9 +539,10 @@
       </div></section>
 
     <div class="submit-row">
-      <button type="button" class="submit-btn" disabled>Submit referral</button>
+      <button type="button" class="submit-btn" id="submit-btn">Submit referral</button>
     </div>
-    <p class="submit-note">Submission is disabled in this design stage. Once the agenda spreadsheet is ready, this button will send responses there automatically.</p>
+    <p class="submit-note" id="submit-note">This form sends directly to the MTSS Referrals tracker once a district staff member has connected the endpoint (see setup note in the page source). Until then, submission will show a connection error — the form itself is fully functional.</p>
+    <div id="submit-result" style="display:none; margin-top: 10px; padding: 12px 16px; border-radius: 8px; font-size: 14px;"></div>
 
   </div>
 
@@ -679,6 +692,154 @@
     continueBtn.textContent = 'Continued below';
     continueBtn.disabled = true;
     stageTwo.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+
+  // =========================================================
+  // SUBMISSION
+  // =========================================================
+  // SETUP NOTE FOR DISTRICT STAFF:
+  // Deploy the companion Apps Script (mtss-referral-apps-script.gs) as a Web App
+  // bound to the MTSS Referral & Agenda Tracker spreadsheet:
+  //   Extensions > Apps Script > paste the .gs file > Deploy > New deployment
+  //   > type "Web app" > Execute as "Me" > Who has access "Anyone"
+  // Copy the resulting /exec URL and paste it below. Until this is set,
+  // submissions will fail with a clear connection error (the form itself
+  // still works fully — nothing else on this page depends on this URL).
+  const SCRIPT_URL = "https://script.google.com/a/macros/eosmith.org/s/AKfycbwbmzTt_NrX34fQ-Lo2Bl8xurliQZMEF6oBwDz3x_FqwNf-AsycwHn0ueMnAKBtf7ER/exec";
+
+  function checkedValues(selector){
+    return Array.from(document.querySelectorAll(selector))
+      .filter(el => el.checked)
+      .map(el => el.value || el.nextElementSibling?.textContent || '');
+  }
+
+  function staffSummary(){
+    const rows = [
+      ['staff-admin', 'staff-admin-entry', 'Administrators'],
+      ['staff-counselor', 'staff-counselor-entry', 'Counselor'],
+      ['staff-social-worker', 'staff-social-worker-entry', 'Social Worker'],
+      ['staff-psych', 'staff-psych-entry', 'Psychologist'],
+      ['staff-case-manager', 'staff-case-manager-entry', 'Case Manager'],
+      ['staff-teachers', 'staff-teachers-entry', 'Teacher(s)'],
+      ['staff-other', 'staff-other-entry', 'Other'],
+    ];
+    return rows
+      .filter(([checkboxId]) => document.getElementById(checkboxId).checked)
+      .map(([, entryId, label]) => {
+        const name = document.getElementById(entryId).value.trim();
+        return name ? `${label}: ${name}` : label;
+      })
+      .join('; ');
+  }
+
+  function primaryConcernValue(){
+    const checked = document.querySelector('input[name="primary-concern"]:checked');
+    if (!checked) return '';
+    if (checked.id === 'primary-other') {
+      const detail = document.getElementById('primary-other-entry').value.trim();
+      return detail ? `Other: ${detail}` : 'Other';
+    }
+    return checked.value;
+  }
+
+  function secondaryConcernsValue(){
+    const wrap = document.getElementById('secondary-concern-group');
+    const values = Array.from(wrap.querySelectorAll('input[type="checkbox"]:checked'))
+      .filter(el => el.id !== 'secondary-other')
+      .map(el => el.value);
+    if (document.getElementById('secondary-other').checked) {
+      const detail = document.getElementById('secondary-other-entry').value.trim();
+      values.push(detail ? `Other: ${detail}` : 'Other');
+    }
+    return values.join('; ');
+  }
+
+  function dataVerificationValue(){
+    const map = [
+      ['verify-grades', 'Grades'],
+      ['verify-tests', 'Test Scores'],
+      ['verify-attendance', 'Attendance'],
+      ['verify-discipline', 'Discipline'],
+    ];
+    return map
+      .filter(([id]) => document.getElementById(id).checked)
+      .map(([, label]) => label)
+      .join('; ');
+  }
+
+  function interventionsValue(){
+    return interventions
+      .map((item, i) => {
+        const box = document.getElementById('intervention-' + i);
+        if (!box.checked) return null;
+        if (item.sessions) {
+          const n = document.getElementById('intervention-' + i + '-sessions').value;
+          return n ? `${item.label} (${n} sessions)` : item.label;
+        }
+        return item.label;
+      })
+      .filter(Boolean)
+      .join('; ');
+  }
+
+  function collectPayload(){
+    const referringTeam = document.querySelector('input[name="referring-team"]:checked');
+    return {
+      timestampSubmitted: new Date().toISOString(),
+      studentName: studentSelect.options[studentSelect.selectedIndex]?.text || '',
+      referringDataTeam: referringTeam ? referringTeam.value : '',
+      involvedStaff: staffSummary(),
+      primaryConcern: primaryConcernValue(),
+      secondaryConcerns: secondaryConcernsValue(),
+      dataVerification: dataVerificationValue(),
+      interventionsAttempted: interventionsValue(),
+      descriptionOfProblem: document.getElementById('problem-description').value.trim(),
+      status: 'New',
+    };
+  }
+
+  const submitBtn = document.getElementById('submit-btn');
+  const submitNote = document.getElementById('submit-note');
+  const resultBox = document.getElementById('submit-result');
+
+  function showResult(kind, message){
+    resultBox.style.display = 'block';
+    resultBox.className = kind === 'success' ? 'result-banner-success' : 'result-banner-error';
+    resultBox.textContent = message;
+  }
+
+  submitBtn.addEventListener('click', async () => {
+    const payload = collectPayload();
+
+    if (!payload.studentName || !payload.referringDataTeam || !payload.primaryConcern) {
+      showResult('error', 'Please select a student, a referring data team, and a primary area of concern before submitting.');
+      return;
+    }
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Submitting…';
+    resultBox.style.display = 'none';
+
+    try {
+      // text/plain avoids a CORS preflight, which Apps Script Web Apps do not
+      // handle reliably when called from an external domain (e.g. GitHub Pages).
+      const response = await fetch(SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(payload),
+      });
+      const result = await response.json();
+      if (result.status === 'success') {
+        showResult('success', `Referral for ${payload.studentName} submitted successfully.`);
+        submitBtn.textContent = 'Submitted';
+      } else {
+        throw new Error(result.message || 'Unknown error from server.');
+      }
+    } catch (err) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Submit referral';
+      showResult('error', 'Could not reach the referral tracker. If this is your first time using the form, the district endpoint may not be connected yet — contact your MTSS coordinator. (' + err.message + ')');
+    }
   });
 
 })();
