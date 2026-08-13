@@ -385,10 +385,9 @@
     <p class="card-hint">Identify the student and the team bringing this concern forward.</p>
 
     <div style="margin-bottom:20px;">
-      <label class="field-label" for="student-name">Student name <span class="pending-tag">Pending PowerSchool link</span></label>
+      <label class="field-label" for="student-name">Student name</label>
       <select id="student-name" class="student-select">
-        <option value="" selected>Select a student&hellip;</option>
-        <option value="placeholder-1">[Roster will populate here]</option>
+        <option value="" selected>Loading student roster&hellip;</option>
       </select>
     </div>
 
@@ -695,17 +694,58 @@
   });
 
   // =========================================================
-  // SUBMISSION
-  // =========================================================
   // SETUP NOTE FOR DISTRICT STAFF:
-  // Deploy the companion Apps Script (mtss-referral-apps-script.gs) as a Web App
-  // bound to the MTSS Referral & Agenda Tracker spreadsheet:
-  //   Extensions > Apps Script > paste the .gs file > Deploy > New deployment
-  //   > type "Web app" > Execute as "Me" > Who has access "Anyone"
-  // Copy the resulting /exec URL and paste it below. Until this is set,
-  // submissions will fail with a clear connection error (the form itself
-  // still works fully — nothing else on this page depends on this URL).
-  const SCRIPT_URL = "https://script.google.com/a/macros/eosmith.org/s/AKfycbwbmzTt_NrX34fQ-Lo2Bl8xurliQZMEF6oBwDz3x_FqwNf-AsycwHn0ueMnAKBtf7ER/exec";
+  // This form's backend is the same MTSS Agenda and Notes Apps Script that
+  // runs the main app — not a separate script. Paste that app's deployed
+  // /exec URL below. That single backend also reads the Score Portal's
+  // Master Data File (Demo tab) to populate the roster dropdown, and writes
+  // new referrals straight into the live Referrals tab.
+  const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyQVTRBz9UdPvt7SotbQ3SPQFYgT9N9TCv5uCLYnJI2Nr5nAN6Snrt_bWQACNs7xHcj/exec";
+
+  function escapeHtml(s){
+    if (s === null || s === undefined) return '';
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+  function escapeAttr(s){ return escapeHtml(s); }
+
+  // =========================================================
+  // STUDENT ROSTER — from the Score Portal's Master Data File, via the
+  // MTSS Agenda app's getStudentRoster endpoint. Each option carries the
+  // student's email silently (data-email); nobody types it.
+  // =========================================================
+  let STUDENT_ROSTER = [];
+
+  function loadRoster(){
+    fetch(SCRIPT_URL + '?action=getStudentRoster&_=' + Date.now(), { cache: 'no-store' })
+      .then(r => r.text())
+      .then(text => {
+        let parsed;
+        try { parsed = JSON.parse(text); }
+        catch (e) {
+          throw new Error('The roster endpoint did not return data — first part of what came back: "' + text.slice(0, 120) + '"');
+        }
+        if (!parsed.ok) throw new Error(parsed.error || 'Could not load the student roster.');
+        STUDENT_ROSTER = parsed.data || [];
+        populateRosterDropdown();
+      })
+      .catch(err => {
+        studentSelect.innerHTML = '<option value="">Roster unavailable — contact your MTSS coordinator</option>';
+        console.error(err);
+      });
+  }
+
+  function populateRosterDropdown(){
+    const sorted = STUDENT_ROSTER.slice().sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    studentSelect.innerHTML = '<option value="">Select a student&hellip;</option>' +
+      sorted.map(s =>
+        '<option value="' + escapeAttr(s.studentNumber) + '" data-email="' + escapeAttr(s.email) +
+        '" data-name="' + escapeAttr(s.name) + '">' +
+        escapeHtml(s.name) + (s.studentNumber ? ' (' + escapeHtml(s.studentNumber) + ')' : '') +
+        '</option>'
+      ).join('');
+  }
+
+  loadRoster();
 
   function checkedValues(selector){
     return Array.from(document.querySelectorAll(selector))
@@ -784,9 +824,11 @@
 
   function collectPayload(){
     const referringTeam = document.querySelector('input[name="referring-team"]:checked');
+    const selectedOption = studentSelect.options[studentSelect.selectedIndex];
     return {
       timestampSubmitted: new Date().toISOString(),
-      studentName: studentSelect.options[studentSelect.selectedIndex]?.text || '',
+      studentName: selectedOption ? (selectedOption.dataset.name || selectedOption.text) : '',
+      studentEmail: selectedOption ? (selectedOption.dataset.email || '') : '',
       referringDataTeam: referringTeam ? referringTeam.value : '',
       involvedStaff: staffSummary(),
       primaryConcern: primaryConcernValue(),
@@ -821,19 +863,23 @@
     resultBox.style.display = 'none';
 
     try {
-      // text/plain avoids a CORS preflight, which Apps Script Web Apps do not
-      // handle reliably when called from an external domain (e.g. GitHub Pages).
-      const response = await fetch(SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify(payload),
-      });
-      const result = await response.json();
-      if (result.status === 'success') {
+      // Same GET-with-payload transport the main MTSS app uses — a school
+      // network security tool was found to intercept POST request bodies
+      // specifically, so every write here travels as a GET instead.
+      const body = JSON.stringify(payload);
+      const qs = 'action=submitReferral&payload=' + encodeURIComponent(body) + '&_=' + Date.now();
+      const response = await fetch(SCRIPT_URL + '?' + qs, { cache: 'no-store' });
+      const text = await response.text();
+      let result;
+      try { result = JSON.parse(text); }
+      catch (e) {
+        throw new Error('The server returned something unexpected instead of a confirmation. First part of what came back: "' + text.slice(0, 120) + '"');
+      }
+      if (result.ok) {
         showResult('success', `Referral for ${payload.studentName} submitted successfully.`);
         submitBtn.textContent = 'Submitted';
       } else {
-        throw new Error(result.message || 'Unknown error from server.');
+        throw new Error(result.error || 'Unknown error from server.');
       }
     } catch (err) {
       submitBtn.disabled = false;
