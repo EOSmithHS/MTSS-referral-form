@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<title>Sign In — MTSS Agenda and Notes</title>
+<style>
+  body{ margin:0; background:#F6F6F4; color:#1A1A1A; font-family:-apple-system,"Segoe UI",Helvetica,Arial,sans-serif; }
+  .card{
+    max-width:420px; margin:100px auto; text-align:center; padding:36px 30px;
+    background:#fff; border:1px solid #E2E1DD; border-radius:10px;
+    box-shadow:0 2px 10px rgba(26,26,26,0.07);
+  }
+  h2{ margin:0 0 6px; font-size:19px; }
+  p{ color:#6B6B6B; font-size:13.5px; margin:0 0 20px; }
+  #btn{ display:flex; justify-content:center; min-height:40px; }
+  .err{
+    background:#FBEAEA; border:1px solid #A6192E; color:#7C1322;
+    padding:10px 14px; border-radius:7px; font-size:13.5px; margin-top:14px;
+  }
+</style>
+</head>
+<body>
+
+<div class="card">
+  <h2>MTSS Agenda and Notes</h2>
+  <p>Sign in with your eosmith.org Google account.</p>
+  <div id="btn"></div>
+  <div id="err"></div>
+</div>
+
+<script>
+  // Fill in both of these before this page will work.
+  // SCRIPT_URL: the same MTSS Agenda app URL you already pasted into the
+  // referral form — the one ending in /exec.
+  // GOOGLE_SSO_CLIENT_ID: from Google Cloud Console, the same Client ID
+  // already in use elsewhere in this project. This page's own address
+  // (wherever you publish it) is what needs to be registered as the
+  // Authorized JavaScript origin for that Client ID — see the setup note
+  // at the bottom of this file.
+  var SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyQVTRBz9UdPvt7SotbQ3SPQFYgT9N9TCv5uCLYnJI2Nr5nAN6Snrt_bWQACNs7xHcj/exec";
+  var GOOGLE_SSO_CLIENT_ID = "283192533248-1oark5fd5a31dgvh05oelhu61heubt7u.apps.googleusercontent.com";
+
+  function esc(s){
+    if (s === null || s === undefined) return "";
+    return String(s).replace(/[&<>"']/g, function(c){
+      return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];
+    });
+  }
+
+  // The app redirects here with its own address attached as ?returnUrl=,
+  // so this page knows where to send someone back to once they're signed
+  // in. Falls back to the app's base URL if that's ever missing.
+  function getReturnUrl(){
+    var params = new URLSearchParams(window.location.search);
+    return params.get('returnUrl') || SCRIPT_URL;
+  }
+
+  // The GIS library loads asynchronously, so it may not be ready the
+  // instant this runs — retry briefly rather than failing silently.
+  function initGoogleSignIn(){
+    if (!window.google || !window.google.accounts || !window.google.accounts.id) {
+      setTimeout(initGoogleSignIn, 200);
+      return;
+    }
+    google.accounts.id.initialize({
+      client_id: GOOGLE_SSO_CLIENT_ID,
+      callback: handleGoogleCredential,
+    });
+    google.accounts.id.renderButton(document.getElementById('btn'), {
+      theme: 'outline', size: 'large', text: 'signin_with', width: 280,
+    });
+  }
+
+  // Verifies the Google credential with the app's own backend (the same
+  // way the referral form already successfully talks to it), then sends
+  // the person back into the app with a session token attached — they
+  // land on the Weekly Agenda already signed in, no second prompt there.
+  function handleGoogleCredential(response){
+    var qs = "action=checkGoogleSSO&idToken=" + encodeURIComponent(response.credential) + "&_=" + Date.now();
+    fetch(SCRIPT_URL + "?" + qs, { cache: "no-store" })
+      .then(function(r){ return r.text(); })
+      .then(function(text){
+        var res;
+        try { res = JSON.parse(text); } catch (e) { throw new Error("Unexpected response from the app."); }
+        if (!res.ok) throw new Error(res.error);
+        var returnUrl = getReturnUrl();
+        var sep = returnUrl.indexOf('?') > -1 ? '&' : '?';
+        window.location.href = returnUrl + sep + "ssoToken=" + encodeURIComponent(res.data.sessionToken);
+      })
+      .catch(function(err){
+        document.getElementById('err').innerHTML = '<div class="err">' + esc(err.message) + '</div>';
+      });
+  }
+
+  initGoogleSignIn();
+</script>
+
+</body>
+</html>
+
+<!--
+SETUP CHECKLIST
+1. Fill in SCRIPT_URL above with your MTSS Agenda app's deployed URL.
+2. Push this file to the same GitHub repo as mtss-referral-form.html, and
+   enable GitHub Pages for it if not already on.
+3. Copy this page's published address (e.g.
+   https://yourusername.github.io/your-repo/mtss-signin.html).
+4. In Google Cloud Console, open the OAuth Client ID already created for
+   this project, and under "Authorized JavaScript origins," add this
+   page's origin — just the scheme + host, e.g.
+   https://yourusername.github.io (no path, no trailing slash).
+   Remove the old script.googleusercontent.com entry if it's still there;
+   it never worked and never will, since it changes on every deployment.
+5. In Index.html (the main app), set SIGNIN_PAGE_URL to this page's full
+   published address.
+-->
