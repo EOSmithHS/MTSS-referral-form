@@ -878,6 +878,16 @@
       if (result.ok) {
         showResult('success', `Referral for ${payload.studentName} submitted successfully.`);
         submitBtn.textContent = 'Submitted';
+        // Return to the start page so a new referral can begin. The banner
+        // stays up for a few seconds as confirmation, then the page is
+        // reloaded fresh (replace() avoids the browser restoring old field values).
+        let secs = 4;
+        const tick = () => {
+          showResult('success', `Referral for ${payload.studentName} submitted successfully. Returning to the start page in ${secs}…`);
+          if (secs-- <= 0) { window.location.replace(window.location.pathname); return; }
+          setTimeout(tick, 1000);
+        };
+        tick();
       } else {
         throw new Error(result.error || 'Unknown error from server.');
       }
