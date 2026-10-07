@@ -140,7 +140,8 @@
     margin-bottom: 8px;
   }
 
-  select.student-select{
+  select.student-select,
+  input.student-select{
     width: 100%;
     max-width: 420px;
     padding: 10px 12px;
@@ -389,6 +390,11 @@
       <select id="student-name" class="student-select">
         <option value="" selected>Loading student roster&hellip;</option>
       </select>
+    </div>
+
+    <div style="margin-bottom:20px;">
+      <label class="field-label" for="submitter-email">Your email (a copy of this referral will be sent here)</label>
+      <input type="email" id="submitter-email" class="student-select" placeholder="yourname@eosmith.org" autocomplete="email">
     </div>
 
     <fieldset>
@@ -829,6 +835,7 @@
       timestampSubmitted: new Date().toISOString(),
       studentName: selectedOption ? (selectedOption.dataset.name || selectedOption.text) : '',
       studentEmail: selectedOption ? (selectedOption.dataset.email || '') : '',
+      submitterEmail: document.getElementById('submitter-email').value.trim(),
       referringDataTeam: referringTeam ? referringTeam.value : '',
       involvedStaff: staffSummary(),
       primaryConcern: primaryConcernValue(),
@@ -858,6 +865,11 @@
       return;
     }
 
+    if (!/^[^\s@]+@eosmith\.org$/i.test(payload.submitterEmail)) {
+      showResult('error', 'Please enter your eosmith.org email address so a copy of the referral can be sent to you.');
+      return;
+    }
+
     submitBtn.disabled = true;
     submitBtn.textContent = 'Submitting…';
     resultBox.style.display = 'none';
@@ -883,7 +895,7 @@
         // reloaded fresh (replace() avoids the browser restoring old field values).
         let secs = 4;
         const tick = () => {
-          showResult('success', `Referral for ${payload.studentName} submitted successfully. Returning to the start page in ${secs}…`);
+          showResult('success', `Referral for ${payload.studentName} submitted successfully. ${result.data && result.data.emailSent === false ? 'The copy email could not be sent. ' : 'A copy was emailed to you. '}Returning to the start page in ${secs}…`);
           if (secs-- <= 0) { window.location.replace(window.location.pathname); return; }
           setTimeout(tick, 1000);
         };
