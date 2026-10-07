@@ -895,7 +895,7 @@
         // reloaded fresh (replace() avoids the browser restoring old field values).
         let secs = 4;
         const tick = () => {
-          showResult('success', `Referral for ${payload.studentName} submitted successfully. ${result.data && result.data.emailSent === false ? 'The copy email could not be sent. ' : 'A copy was emailed to you. '}Returning to the start page in ${secs}…`);
+          showResult('success', `Referral for ${payload.studentName} submitted successfully. A copy will be emailed to you within a minute or two. Returning to the start page in ${secs}…`);
           if (secs-- <= 0) { window.location.replace(window.location.pathname); return; }
           setTimeout(tick, 1000);
         };
